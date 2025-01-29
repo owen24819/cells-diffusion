@@ -1,0 +1,27 @@
+# Ignore Python virtual environment
+venv/
+.env/
+
+# Ignore data files (if applicable)
+data/
+
+# Ignore checkpoint folder with saved models
+checkpoints/
+
+
+
+# Ignore Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore IDE-specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore large files or directories
+*.tif
+*.tiff
