@@ -44,11 +44,17 @@ scheduler = DDPMScheduler(num_train_timesteps=200)
 # Optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=2e-4)
 
+# Before the training loop, initialize lists to store metrics
+epoch_losses = []
+batch_losses = []
+timesteps_used = []
+
 # Training loop
 epochs = 3  # Reduce epochs to avoid long training times on CPU
 for epoch in range(epochs):
     epoch_loss = 0.0
     num_batches = len(train_loader)
+    batch_losses_epoch = []  # Track losses within this epoch
     
     with tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}") as t:
         for batch_idx, (images, _) in enumerate(t):
@@ -66,6 +72,10 @@ for epoch in range(epochs):
             loss = torch.nn.functional.mse_loss(noise_pred, noise)
             epoch_loss += loss.item()
 
+            # Store metrics
+            batch_losses_epoch.append(loss.item())
+            timesteps_used.extend(timesteps.cpu().numpy())
+            
             # Optimize
             optimizer.zero_grad()
             loss.backward()
@@ -75,6 +85,8 @@ for epoch in range(epochs):
             t.set_postfix(loss=f'{loss.item():.4f}', avg_loss=f'{avg_loss_so_far:.4f}')  # Update progress bar with loss and avg loss
     
     avg_loss = epoch_loss / num_batches
+    epoch_losses.append(avg_loss)
+    batch_losses.extend(batch_losses_epoch)
     print(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}")
     
     # Generate new images after each epoch
@@ -94,6 +106,39 @@ for epoch in range(epochs):
         
         # Print path for easy viewing in VSCode
         print(f"Saved sample {i+1} to: {os.path.abspath(image_path)}")
+
+# After training, create and save plots
+plt.figure(figsize=(15, 5))
+
+# Plot 1: Epoch Losses
+plt.subplot(1, 3, 1)
+plt.plot(range(1, epochs + 1), epoch_losses, marker='o')
+plt.title('Average Loss per Epoch')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.grid(True)
+
+# Plot 2: Batch Losses
+plt.subplot(1, 3, 2)
+plt.plot(batch_losses)
+plt.title('Loss per Batch')
+plt.xlabel('Batch')
+plt.ylabel('Loss')
+plt.grid(True)
+
+# Plot 3: Timesteps Distribution
+plt.subplot(1, 3, 3)
+plt.hist(timesteps_used, bins=50)
+plt.title('Timesteps Distribution')
+plt.xlabel('Timestep')
+plt.ylabel('Frequency')
+plt.grid(True)
+
+plt.tight_layout()
+plt.savefig('samples/training_metrics.png')
+plt.close()
+
+print("Training metrics plot saved as: training_metrics.png")
 
 # Save trained model
 model.save_pretrained("./mnist_diffusion_cpu")
