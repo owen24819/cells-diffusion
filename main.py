@@ -72,7 +72,7 @@ for epoch in range(epochs):
             optimizer.step()
             
             avg_loss_so_far = epoch_loss / (batch_idx + 1)
-            t.set_postfix(loss=loss.item(), avg_loss=avg_loss_so_far)  # Update progress bar with loss and avg loss
+            t.set_postfix(loss=f'{loss.item():.4f}', avg_loss=f'{avg_loss_so_far:.4f}')  # Update progress bar with loss and avg loss
     
     avg_loss = epoch_loss / num_batches
     print(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}")
