@@ -4,6 +4,7 @@ venv/
 
 # Ignore data files (if applicable)
 data/
+samples/
 
 # Ignore checkpoint folder with saved models
 checkpoints/

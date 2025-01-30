@@ -5,6 +5,7 @@ from diffusers import UNet2DModel, DDPMScheduler, DDPMPipeline
 import matplotlib.pyplot as plt
 from tqdm import tqdm  # For progress bar
 import os
+from PIL import Image
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -14,6 +15,9 @@ if not os.path.exists(os.path.join(data_dir, "MNIST")):
     download = True
 else:
     download = False
+
+# Create main samples directory if it doesn't exist - save generated images here
+os.makedirs("samples", exist_ok=True)
 
 transform = transforms.Compose([
     transforms.ToTensor(),
@@ -77,13 +81,19 @@ for epoch in range(epochs):
     pipeline = DDPMPipeline(unet=model, scheduler=scheduler)
     pipeline.to(device)
     samples = pipeline(num_inference_steps=30, batch_size=5).images
+
+    # Create a subdirectory for the current epoch
+    epoch_dir = os.path.join("samples", f"epoch_{epoch+1}")
+    os.makedirs(epoch_dir, exist_ok=True)
     
-    # Plot generated samples
-    fig, axes = plt.subplots(1, 5, figsize=(10, 2))
+    # Save each sample as a PNG file
     for i, img in enumerate(samples):
-        axes[i].imshow(img, cmap="gray")
-        axes[i].axis("off")
-    plt.show()
+        # Save PIL Image directly
+        image_path = os.path.join(epoch_dir, f"sample_{i+1}.png")
+        img.save(image_path)
+        
+        # Print path for easy viewing in VSCode
+        print(f"Saved sample {i+1} to: {os.path.abspath(image_path)}")
 
 # Save trained model
 model.save_pretrained("./mnist_diffusion_cpu")
