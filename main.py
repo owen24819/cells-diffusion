@@ -203,18 +203,18 @@ plt.figure(figsize=(15, 5))
 
 # Plot 1: Epoch Losses
 plt.subplot(1, 4, 1)
-plt.plot(range(1, num_epochs + 1), epoch_losses, marker='o')
-plt.title('Average Loss per Epoch')
+plt.semilogy(range(1, num_epochs + 1), epoch_losses, marker='o')
+plt.title('Average Loss per Epoch (Log Scale)')
 plt.xlabel('Epoch')
-plt.ylabel('Loss')
+plt.ylabel('Loss (log)')
 plt.grid(True)
 
 # Plot 2: Batch Losses
 plt.subplot(1, 4, 2)
-plt.plot(batch_losses)
-plt.title('Loss per Batch')
+plt.semilogy(batch_losses)
+plt.title('Loss per Batch (Log Scale)') 
 plt.xlabel('Batch')
-plt.ylabel('Loss')
+plt.ylabel('Loss (log)')
 plt.grid(True)
 
 # Plot 3: Timesteps Distribution
