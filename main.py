@@ -48,6 +48,64 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=2e-4)
 epoch_losses = []
 batch_losses = []
 timesteps_used = []
+learning_rates = []
+
+# Create directory for noisy images
+noisy_images_dir = os.path.join("samples", "noisy_images")
+os.makedirs(noisy_images_dir, exist_ok=True)
+
+# Initialize noise scheduler
+noise_scheduler = DDPMScheduler(
+    num_train_timesteps=num_timesteps,
+    beta_schedule="linear",  
+)
+
+def add_noise(images, timesteps, device):
+    """
+    Add noise to images using the DDPM scheduler.
+    
+    Args:
+        images: Tensor of images in [-1, 1] range
+        timesteps: Tensor of timesteps for each image
+        device: torch device to use
+        
+    Returns:
+        noisy_images: Images with added noise
+        noise: The noise that was added
+    """
+    noise = torch.randn_like(images)
+    noisy_images = noise_scheduler.add_noise(images, noise, timesteps)
+    return noisy_images, noise
+
+# Save some noisy images before training starts
+with torch.no_grad():
+    # Get 3 random images from the dataset
+    num_images_to_save = 3
+    sample_images, _ = next(iter(DataLoader(train_dataset, batch_size=num_images_to_save)))
+    sample_images = sample_images.to(device)
+    
+    # Save original images first
+    for i in range(num_images_to_save):
+        # Convert from [-1,1] back to [0,1] range
+        img_array = ((sample_images[i].cpu().squeeze() + 1) / 2).numpy()
+        img = Image.fromarray((img_array * 255).astype('uint8'))
+        img.save(os.path.join(noisy_images_dir, f"original_img{i+1}.png"))
+    
+    print("Saved original images")
+    
+    # Create noise at different timesteps - need to pick timesteps below num_timesteps
+    for t in [1, 10, 100, 500]:
+        timesteps = torch.ones(num_images_to_save, device=device).long() * t
+        noisy, _ = add_noise(sample_images, timesteps, device)
+        
+        # Convert to PIL images and save
+        for i in range(num_images_to_save):
+            # Convert from [-1,1] back to [0,1] range
+            img_array = ((noisy[i].cpu().squeeze() + 1) / 2).numpy()
+            img = Image.fromarray((img_array * 255).astype('uint8'))
+            img.save(os.path.join(noisy_images_dir, f"noisy_t{t}_img{i+1}.png"))
+        
+        print(f"Saved noisy images at timestep {t}")
 
 # Training loop
 epochs = 3  # Reduce epochs to avoid long training times on CPU
