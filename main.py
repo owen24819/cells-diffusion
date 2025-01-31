@@ -147,23 +147,24 @@ for epoch in range(epochs):
     batch_losses.extend(batch_losses_epoch)
     print(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}")
     
-    # Generate new images after each epoch
-    pipeline = DDPMPipeline(unet=model, scheduler=scheduler)
-    pipeline.to(device)
-    samples = pipeline(num_inference_steps=30, batch_size=5).images
+    # Generate new images every 10 epochs
+    if (epoch + 1) % 10 == 0:  # Check if current epoch is divisible by 10
+        pipeline = DDPMPipeline(unet=model, scheduler=noise_scheduler)
+        pipeline.to(device)
+        samples = pipeline(num_inference_steps=100, batch_size=5).images
 
-    # Create a subdirectory for the current epoch
-    epoch_dir = os.path.join("samples", f"epoch_{epoch+1}")
-    os.makedirs(epoch_dir, exist_ok=True)
-    
-    # Save each sample as a PNG file
-    for i, img in enumerate(samples):
-        # Save PIL Image directly
-        image_path = os.path.join(epoch_dir, f"sample_{i+1}.png")
-        img.save(image_path)
+        # Create a subdirectory for the current epoch
+        epoch_dir = os.path.join("samples", f"epoch_{epoch+1}")
+        os.makedirs(epoch_dir, exist_ok=True)
         
-        # Print path for easy viewing in VSCode
-        print(f"Saved sample {i+1} to: {os.path.abspath(image_path)}")
+        # Save each sample as a PNG file
+        for i, img in enumerate(samples):
+            # Save PIL Image directly
+            image_path = os.path.join(epoch_dir, f"sample_{i+1}.png")
+            img.save(image_path)
+            
+            # Print path for easy viewing in VSCode
+            print(f"Saved sample {i+1} to: {os.path.abspath(image_path)}")
 
 # After training, create and save plots
 plt.figure(figsize=(15, 5))
