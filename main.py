@@ -130,14 +130,13 @@ for epoch in range(epochs):
     batch_losses_epoch = []  # Track losses within this epoch
     current_lr = optimizer.param_groups[0]['lr']
     
-    with tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}") as t:
+    with tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}") as t:
         for batch_idx, (images, _) in enumerate(t):
-            images = images.to(device)
+            images = images.to(device)  # Ensure data is on GPU
 
-            # Add noise
-            noise = torch.randn_like(images)
-            timesteps = torch.randint(0, scheduler.num_train_timesteps, (images.shape[0],), device=device).long()
-            noisy_images = scheduler.add_noise(images, noise, timesteps)
+            # Add noise to images
+            timesteps = torch.randint(0, num_timesteps, (images.shape[0],), device=device).long()
+            noisy_images, noise = add_noise(images, timesteps, device)
 
             # Predict noise
             noise_pred = model(noisy_images, timesteps).sample
