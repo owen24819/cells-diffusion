@@ -6,8 +6,14 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm  # For progress bar
 import os
 from PIL import Image
+import math
+from torch.optim.lr_scheduler import LambdaLR
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+# Training hyperparameters
+batch_size = 256  # Increased for better statistics
+num_epochs = 100  # Train for longer
+num_timesteps = 1000
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load MNIST dataset only if not already downloaded
 data_dir = "./data"
@@ -27,7 +33,12 @@ transform = transforms.Compose([
 train_dataset = datasets.MNIST(root=data_dir, train=True, download=download, transform=transform)
 train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)  # Smaller batch size for CPU
 
-# Define a small UNet model
+# Model parameters and optimization
+learning_rate = 2e-4  # Slightly increased
+total_steps = num_epochs * len(train_loader)
+warmup_steps = int(0.05 * total_steps)  # Reduced to 5% warmup
+
+# Initialize larger model with better architecture
 model = UNet2DModel(
     sample_size=28,  # Image size
     in_channels=1,   # Grayscale images
@@ -38,11 +49,15 @@ model = UNet2DModel(
     up_block_types=("UpBlock2D", "UpBlock2D", "UpBlock2D"),
 ).to(device)
 
-# Define noise scheduler with fewer steps
-scheduler = DDPMScheduler(num_train_timesteps=200)
+optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-# Optimizer
-optimizer = torch.optim.AdamW(model.parameters(), lr=2e-4)
+# Custom learning rate schedule with warmup and cosine decay
+def lr_lambda(step):
+    if step < warmup_steps:
+        return step / warmup_steps  # Linear warmup
+    return 0.5 * (1 + math.cos(math.pi * (step - warmup_steps) / (total_steps - warmup_steps)))
+
+scheduler = LambdaLR(optimizer, lr_lambda)
 
 # Before the training loop, initialize lists to store metrics
 epoch_losses = []
@@ -113,6 +128,7 @@ for epoch in range(epochs):
     epoch_loss = 0.0
     num_batches = len(train_loader)
     batch_losses_epoch = []  # Track losses within this epoch
+    current_lr = optimizer.param_groups[0]['lr']
     
     with tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}") as t:
         for batch_idx, (images, _) in enumerate(t):
@@ -138,9 +154,17 @@ for epoch in range(epochs):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
             
-            avg_loss_so_far = epoch_loss / (batch_idx + 1)
-            t.set_postfix(loss=f'{loss.item():.4f}', avg_loss=f'{avg_loss_so_far:.4f}')  # Update progress bar with loss and avg loss
+            current_lr = optimizer.param_groups[0]['lr']
+            learning_rates.append(current_lr)
+            
+            # Update progress bar with loss and learning rate
+            t.set_postfix(
+                loss=f'{loss.item():.4f}', 
+                avg_loss=f'{(epoch_loss / (batch_idx + 1)):.4f}',
+                lr=f'{current_lr:.6f}'
+            )
     
     avg_loss = epoch_loss / num_batches
     epoch_losses.append(avg_loss)
@@ -166,19 +190,22 @@ for epoch in range(epochs):
             # Print path for easy viewing in VSCode
             print(f"Saved sample {i+1} to: {os.path.abspath(image_path)}")
 
+    # Add learning rate to the metrics plot
+    learning_rates.append(current_lr)
+
 # After training, create and save plots
 plt.figure(figsize=(15, 5))
 
 # Plot 1: Epoch Losses
-plt.subplot(1, 3, 1)
-plt.plot(range(1, epochs + 1), epoch_losses, marker='o')
+plt.subplot(1, 4, 1)
+plt.plot(range(1, num_epochs + 1), epoch_losses, marker='o')
 plt.title('Average Loss per Epoch')
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.grid(True)
 
 # Plot 2: Batch Losses
-plt.subplot(1, 3, 2)
+plt.subplot(1, 4, 2)
 plt.plot(batch_losses)
 plt.title('Loss per Batch')
 plt.xlabel('Batch')
@@ -186,11 +213,19 @@ plt.ylabel('Loss')
 plt.grid(True)
 
 # Plot 3: Timesteps Distribution
-plt.subplot(1, 3, 3)
+plt.subplot(1, 4, 3)
 plt.hist(timesteps_used, bins=50)
 plt.title('Timesteps Distribution')
 plt.xlabel('Timestep')
 plt.ylabel('Frequency')
+plt.grid(True)
+
+# Plot 4: Learning Rate Schedule
+plt.subplot(1, 4, 4)
+plt.plot(learning_rates)
+plt.title('Learning Rate Schedule')
+plt.xlabel('Steps')
+plt.ylabel('Learning Rate')
 plt.grid(True)
 
 plt.tight_layout()
