@@ -31,7 +31,13 @@ transform = transforms.Compose([
 ])
 
 train_dataset = datasets.MNIST(root=data_dir, train=True, download=download, transform=transform)
-train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)  # Smaller batch size for CPU
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=batch_size,
+    shuffle=True,
+    num_workers=4,  # Match number of vCPUs
+    pin_memory=True  # Faster data transfer to GPU
+)
 
 # Model parameters and optimization
 learning_rate = 2e-4  # Slightly increased
@@ -44,9 +50,9 @@ model = UNet2DModel(
     in_channels=1,   # Grayscale images
     out_channels=1,
     layers_per_block=2,
-    block_out_channels=(32, 64, 128),  # Small model
-    down_block_types=("DownBlock2D", "DownBlock2D", "DownBlock2D"),
-    up_block_types=("UpBlock2D", "UpBlock2D", "UpBlock2D"),
+    block_out_channels=(64, 128, 256),  # Made channels increase consistently
+    down_block_types=("DownBlock2D", "DownBlock2D", "DownBlock2D"),  # Removed attention for now
+    up_block_types=("UpBlock2D", "UpBlock2D", "UpBlock2D"),  # Removed attention for now
 ).to(device)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -123,8 +129,8 @@ with torch.no_grad():
         print(f"Saved noisy images at timestep {t}")
 
 # Training loop
-epochs = 3  # Reduce epochs to avoid long training times on CPU
-for epoch in range(epochs):
+for epoch in range(num_epochs):
+    model.train()
     epoch_loss = 0.0
     num_batches = len(train_loader)
     batch_losses_epoch = []  # Track losses within this epoch
