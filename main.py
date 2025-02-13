@@ -10,9 +10,9 @@ import math
 from torch.optim.lr_scheduler import LambdaLR
 
 # Training hyperparameters
-batch_size = 256  # Increased for better statistics
-num_epochs = 100  # Train for longer
-num_timesteps = 1000
+BATCH_SIZE = 256  # Increased for better statistics
+NUM_EPOCHS = 100  # Train for longer
+NUM_TIMESTEPS = 1000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load MNIST dataset only if not already downloaded
@@ -33,7 +33,7 @@ transform = transforms.Compose([
 train_dataset = datasets.MNIST(root=data_dir, train=True, download=download, transform=transform)
 train_loader = DataLoader(
     train_dataset,
-    batch_size=batch_size,
+    batch_size=BATCH_SIZE,
     shuffle=True,
     num_workers=4,  # Match number of vCPUs
     pin_memory=True  # Faster data transfer to GPU
@@ -41,7 +41,7 @@ train_loader = DataLoader(
 
 # Model parameters and optimization
 learning_rate = 2e-4  # Slightly increased
-total_steps = num_epochs * len(train_loader)
+total_steps = NUM_EPOCHS * len(train_loader)
 warmup_steps = int(0.05 * total_steps)  # Reduced to 5% warmup
 
 # Initialize larger model with better architecture
@@ -77,7 +77,7 @@ os.makedirs(noisy_images_dir, exist_ok=True)
 
 # Initialize noise scheduler
 noise_scheduler = DDPMScheduler(
-    num_train_timesteps=num_timesteps,
+    num_train_timesteps=NUM_TIMESTEPS,
     beta_schedule="linear",  
 )
 
@@ -114,7 +114,7 @@ with torch.no_grad():
     
     print("Saved original images")
     
-    # Create noise at different timesteps - need to pick timesteps below num_timesteps
+    # Create noise at different timesteps - need to pick timesteps below NUM_TIMESTEPS
     for t in [1, 10, 100, 500]:
         timesteps = torch.ones(num_images_to_save, device=device).long() * t
         noisy, _ = add_noise(sample_images, timesteps, device)
@@ -129,19 +129,19 @@ with torch.no_grad():
         print(f"Saved noisy images at timestep {t}")
 
 # Training loop
-for epoch in range(num_epochs):
+for epoch in range(NUM_EPOCHS):
     model.train()
     epoch_loss = 0.0
     num_batches = len(train_loader)
     batch_losses_epoch = []  # Track losses within this epoch
     current_lr = optimizer.param_groups[0]['lr']
     
-    with tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}") as t:
+    with tqdm(train_loader, desc=f"Epoch {epoch+1}/{NUM_EPOCHS}") as t:
         for batch_idx, (images, _) in enumerate(t):
             images = images.to(device)  # Ensure data is on GPU
 
             # Add noise to images
-            timesteps = torch.randint(0, num_timesteps, (images.shape[0],), device=device).long()
+            timesteps = torch.randint(0, NUM_TIMESTEPS, (images.shape[0],), device=device).long()
             noisy_images, noise = add_noise(images, timesteps, device)
 
             # Predict noise
@@ -203,7 +203,7 @@ plt.figure(figsize=(15, 5))
 
 # Plot 1: Epoch Losses
 plt.subplot(1, 4, 1)
-plt.semilogy(range(1, num_epochs + 1), epoch_losses, marker='o')
+plt.semilogy(range(1, NUM_EPOCHS + 1), epoch_losses, marker='o')
 plt.title('Average Loss per Epoch (Log Scale)')
 plt.xlabel('Epoch')
 plt.ylabel('Loss (log)')
