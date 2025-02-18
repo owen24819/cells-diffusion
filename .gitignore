@@ -3,13 +3,15 @@ venv/
 .env/
 
 # Ignore data files (if applicable)
-data/
-samples/
+data/*
+!data/.gitkeep
 
-# Ignore checkpoint folder with saved models
-checkpoints/
+# Ignore models
+models/*
+!models/.gitkeep
 
-
+# Ignore wandb
+wandb/
 
 # Ignore Python compiled files
 __pycache__/
