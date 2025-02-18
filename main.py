@@ -1,52 +1,59 @@
+from pathlib import Path
+import datetime
+
 import torch
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
-from diffusers import UNet2DModel, DDPMScheduler, DDPMPipeline
-import matplotlib.pyplot as plt
-from tqdm import tqdm  # For progress bar
-import os
-from PIL import Image
-import math
 from torch.optim.lr_scheduler import LambdaLR
+from torch.utils.data import DataLoader
+from diffusers import UNet2DModel, DDPMScheduler, DDPMPipeline
+
+from tqdm import tqdm  # For progress bar
+
+from data_utils import load_dataset
+from utils import plot_training_metrics, save_noisy_images, add_noise, lr_lambda
 
 # Training hyperparameters
-BATCH_SIZE = 256  # Increased for better statistics
-NUM_EPOCHS = 100  # Train for longer
+BATCH_SIZE = 4  
+NUM_EPOCHS = 100  
+LEARNING_RATE = 2e-4  
 NUM_TIMESTEPS = 1000
+DATASET = "cells"
+SAVE_NOISE_IMAGES = True
+TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+data_dir = Path(f"./data/{DATASET}")
+model_dir = Path(f"./models/{DATASET}/UNet2DModel_BATCH_SIZE_{BATCH_SIZE}_LEARNING_RATE_{LEARNING_RATE}_EPOCHS_{NUM_EPOCHS}_NUM_TIMESTEPS_{NUM_TIMESTEPS}_{TIMESTAMP}")
 
-# Load MNIST dataset only if not already downloaded
-data_dir = "./data"
-if not os.path.exists(os.path.join(data_dir, "MNIST")):
-    download = True
-else:
-    download = False
+data_dir.mkdir(parents=True, exist_ok=True)
+model_dir.mkdir(parents=True, exist_ok=True)
 
-# Create main samples directory if it doesn't exist - save generated images here
-os.makedirs("samples", exist_ok=True)
+train_dataset = load_dataset(data_dir)
 
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Lambda(lambda x: 2 * x - 1)  # Normalize to [-1,1]
-])
-
-train_dataset = datasets.MNIST(root=data_dir, train=True, download=download, transform=transform)
 train_loader = DataLoader(
-    train_dataset,
-    batch_size=BATCH_SIZE,
-    shuffle=True,
-    num_workers=4,  # Match number of vCPUs
-    pin_memory=True  # Faster data transfer to GPU
-)
+        dataset=train_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=True  # Optimizes data transfer to GPU
+    )
 
-# Model parameters and optimization
-learning_rate = 2e-4  # Slightly increased
-total_steps = NUM_EPOCHS * len(train_loader)
-warmup_steps = int(0.05 * total_steps)  # Reduced to 5% warmup
+# Initialize noise scheduler
+noise_scheduler = DDPMScheduler(NUM_TIMESTEPS, beta_schedule="linear")
+
+if SAVE_NOISE_IMAGES:
+    # Create a dataset for noise visualization
+    noise_vis_dataset = load_dataset(data_dir)
+    save_noisy_images(
+        train_dataset = noise_vis_dataset, 
+        noisy_images_dir = data_dir / "noisy_images", 
+        noise_scheduler = noise_scheduler, 
+        num_images_to_save = 3, 
+        timesteps = [1, 10, 100, 500]
+    )
 
 # Initialize larger model with better architecture
 model = UNet2DModel(
-    sample_size=28,  # Image size
+    sample_size=train_dataset.target_size,  # Image size
     in_channels=1,   # Grayscale images
     out_channels=1,
     layers_per_block=2,
@@ -55,78 +62,19 @@ model = UNet2DModel(
     up_block_types=("UpBlock2D", "UpBlock2D", "UpBlock2D"),  # Removed attention for now
 ).to(device)
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
-# Custom learning rate schedule with warmup and cosine decay
-def lr_lambda(step):
-    if step < warmup_steps:
-        return step / warmup_steps  # Linear warmup
-    return 0.5 * (1 + math.cos(math.pi * (step - warmup_steps) / (total_steps - warmup_steps)))
-
-scheduler = LambdaLR(optimizer, lr_lambda)
+# Model parameters and optimization
+total_steps = NUM_EPOCHS * len(train_loader)
+warmup_steps = int(0.05 * total_steps)  # Reduced to 5% warmup
+lr_scheduler = lambda step: lr_lambda(step, warmup_steps, total_steps)
+scheduler = LambdaLR(optimizer, lr_scheduler)
 
 # Before the training loop, initialize lists to store metrics
 epoch_losses = []
 batch_losses = []
 timesteps_used = []
 learning_rates = []
-
-# Create directory for noisy images
-noisy_images_dir = os.path.join("samples", "noisy_images")
-os.makedirs(noisy_images_dir, exist_ok=True)
-
-# Initialize noise scheduler
-noise_scheduler = DDPMScheduler(
-    num_train_timesteps=NUM_TIMESTEPS,
-    beta_schedule="linear",  
-)
-
-def add_noise(images, timesteps, device):
-    """
-    Add noise to images using the DDPM scheduler.
-    
-    Args:
-        images: Tensor of images in [-1, 1] range
-        timesteps: Tensor of timesteps for each image
-        device: torch device to use
-        
-    Returns:
-        noisy_images: Images with added noise
-        noise: The noise that was added
-    """
-    noise = torch.randn_like(images)
-    noisy_images = noise_scheduler.add_noise(images, noise, timesteps)
-    return noisy_images, noise
-
-# Save some noisy images before training starts
-with torch.no_grad():
-    # Get 3 random images from the dataset
-    num_images_to_save = 3
-    sample_images, _ = next(iter(DataLoader(train_dataset, batch_size=num_images_to_save)))
-    sample_images = sample_images.to(device)
-    
-    # Save original images first
-    for i in range(num_images_to_save):
-        # Convert from [-1,1] back to [0,1] range
-        img_array = ((sample_images[i].cpu().squeeze() + 1) / 2).numpy()
-        img = Image.fromarray((img_array * 255).astype('uint8'))
-        img.save(os.path.join(noisy_images_dir, f"original_img{i+1}.png"))
-    
-    print("Saved original images")
-    
-    # Create noise at different timesteps - need to pick timesteps below NUM_TIMESTEPS
-    for t in [1, 10, 100, 500]:
-        timesteps = torch.ones(num_images_to_save, device=device).long() * t
-        noisy, _ = add_noise(sample_images, timesteps, device)
-        
-        # Convert to PIL images and save
-        for i in range(num_images_to_save):
-            # Convert from [-1,1] back to [0,1] range
-            img_array = ((noisy[i].cpu().squeeze() + 1) / 2).numpy()
-            img = Image.fromarray((img_array * 255).astype('uint8'))
-            img.save(os.path.join(noisy_images_dir, f"noisy_t{t}_img{i+1}.png"))
-        
-        print(f"Saved noisy images at timestep {t}")
 
 # Training loop
 for epoch in range(NUM_EPOCHS):
@@ -142,7 +90,7 @@ for epoch in range(NUM_EPOCHS):
 
             # Add noise to images
             timesteps = torch.randint(0, NUM_TIMESTEPS, (images.shape[0],), device=device).long()
-            noisy_images, noise = add_noise(images, timesteps, device)
+            noisy_images, noise = add_noise(images, timesteps, noise_scheduler)
 
             # Predict noise
             noise_pred = model(noisy_images, timesteps).sample
@@ -177,67 +125,28 @@ for epoch in range(NUM_EPOCHS):
     print(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}")
     
     # Generate new images every 10 epochs
-    if (epoch + 1) % 10 == 0:  # Check if current epoch is divisible by 10
+    if (epoch + 1) % 2 == 0:  # Check if current epoch is divisible by 10
         pipeline = DDPMPipeline(unet=model, scheduler=noise_scheduler)
         pipeline.to(device)
         samples = pipeline(num_inference_steps=100, batch_size=5).images
 
         # Create a subdirectory for the current epoch
-        epoch_dir = os.path.join("samples", f"epoch_{epoch+1}")
-        os.makedirs(epoch_dir, exist_ok=True)
+        epoch_dir = model_dir / f"epoch_{epoch+1}"
+        epoch_dir.mkdir(parents=True, exist_ok=True)
         
         # Save each sample as a PNG file
         for i, img in enumerate(samples):
             # Save PIL Image directly
-            image_path = os.path.join(epoch_dir, f"sample_{i+1}.png")
+            image_path = epoch_dir / f"sample_{i+1}.png"
             img.save(image_path)
             
             # Print path for easy viewing in VSCode
-            print(f"Saved sample {i+1} to: {os.path.abspath(image_path)}")
+            print(f"Saved sample {i+1} to: {image_path.absolute()}")
 
     # Add learning rate to the metrics plot
     learning_rates.append(current_lr)
 
-# After training, create and save plots
-plt.figure(figsize=(15, 5))
-
-# Plot 1: Epoch Losses
-plt.subplot(1, 4, 1)
-plt.semilogy(range(1, NUM_EPOCHS + 1), epoch_losses, marker='o')
-plt.title('Average Loss per Epoch (Log Scale)')
-plt.xlabel('Epoch')
-plt.ylabel('Loss (log)')
-plt.grid(True)
-
-# Plot 2: Batch Losses
-plt.subplot(1, 4, 2)
-plt.semilogy(batch_losses)
-plt.title('Loss per Batch (Log Scale)') 
-plt.xlabel('Batch')
-plt.ylabel('Loss (log)')
-plt.grid(True)
-
-# Plot 3: Timesteps Distribution
-plt.subplot(1, 4, 3)
-plt.hist(timesteps_used, bins=50)
-plt.title('Timesteps Distribution')
-plt.xlabel('Timestep')
-plt.ylabel('Frequency')
-plt.grid(True)
-
-# Plot 4: Learning Rate Schedule
-plt.subplot(1, 4, 4)
-plt.plot(learning_rates)
-plt.title('Learning Rate Schedule')
-plt.xlabel('Steps')
-plt.ylabel('Learning Rate')
-plt.grid(True)
-
-plt.tight_layout()
-plt.savefig('samples/training_metrics.png')
-plt.close()
-
-print("Training metrics plot saved as: training_metrics.png")
+plot_training_metrics(epoch_losses, batch_losses, timesteps_used, learning_rates, NUM_EPOCHS, model_dir)
 
 # Save trained model
-model.save_pretrained("./mnist_diffusion_cpu")
+model.save_pretrained(model_dir)
