@@ -1,15 +1,18 @@
-from pathlib import Path
+# Standard library imports
 import datetime
+from pathlib import Path
 
+# Third-party imports
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
-from diffusers import UNet2DModel, DDPMScheduler, DDPMPipeline
+from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel
+from tqdm import tqdm
+import wandb
 
-from tqdm import tqdm  # For progress bar
-
+# Local imports
 from data_utils import load_dataset
-from utils import plot_training_metrics, save_noisy_images, add_noise, lr_lambda
+from utils import add_noise, lr_lambda, plot_training_metrics, save_noisy_images
 
 # Training hyperparameters
 BATCH_SIZE = 4  
