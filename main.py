@@ -1,7 +1,7 @@
 # Standard library imports
 import datetime
 from pathlib import Path
-
+import shutil
 # Third-party imports
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -16,7 +16,7 @@ from utils import add_noise, lr_lambda, plot_training_metrics, save_noisy_images
 
 # Training hyperparameters
 BATCH_SIZE = 4  
-NUM_EPOCHS = 100  
+NUM_EPOCHS = 100
 LEARNING_RATE = 2e-4  
 NUM_TIMESTEPS = 1000
 DATASET = "cells"
@@ -25,7 +25,8 @@ TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 data_dir = Path(f"./data/{DATASET}")
-model_dir = Path(f"./models/{DATASET}/UNet2DModel_BATCH_SIZE_{BATCH_SIZE}_LEARNING_RATE_{LEARNING_RATE}_EPOCHS_{NUM_EPOCHS}_NUM_TIMESTEPS_{NUM_TIMESTEPS}_{TIMESTAMP}")
+MODEL_NAME = f"UNet2DModel_BATCH_SIZE_{BATCH_SIZE}_LEARNING_RATE_{LEARNING_RATE}_EPOCHS_{NUM_EPOCHS}_NUM_TIMESTEPS_{NUM_TIMESTEPS}_{TIMESTAMP}"
+model_dir = Path(f"./models/{DATASET}/{MODEL_NAME}")
 
 data_dir.mkdir(parents=True, exist_ok=True)
 model_dir.mkdir(parents=True, exist_ok=True)
@@ -64,6 +65,20 @@ model = UNet2DModel(
     down_block_types=("DownBlock2D", "DownBlock2D", "DownBlock2D"),  # Removed attention for now
     up_block_types=("UpBlock2D", "UpBlock2D", "UpBlock2D"),  # Removed attention for now
 ).to(device)
+
+# start a new experiment
+wandb.init(project="cells-diffusion-model", name=MODEL_NAME)
+# capture a dictionary of hyperparameters with config
+wandb.config.update({
+    "learning_rate": LEARNING_RATE, 
+    "epochs": NUM_EPOCHS, 
+    "batch_size": BATCH_SIZE, 
+    "timesteps": NUM_TIMESTEPS, 
+    "dataset": DATASET
+    })
+
+# track gradients
+wandb.watch(model)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
@@ -121,6 +136,11 @@ for epoch in range(NUM_EPOCHS):
                 avg_loss=f'{(epoch_loss / (batch_idx + 1)):.4f}',
                 lr=f'{current_lr:.6f}'
             )
+
+            wandb.log({"loss": loss.item()})
+
+            # Save trained model
+            model.save_pretrained(model_dir)
     
     avg_loss = epoch_loss / num_batches
     epoch_losses.append(avg_loss)
@@ -128,7 +148,8 @@ for epoch in range(NUM_EPOCHS):
     print(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}")
     
     # Generate new images every 10 epochs
-    if (epoch + 1) % 2 == 0:  # Check if current epoch is divisible by 10
+    save_images_every_epoch = max(NUM_EPOCHS // 5, NUM_EPOCHS)
+    if (epoch + 1) % save_images_every_epoch == 0:  # Check if current epoch is divisible by 10
         pipeline = DDPMPipeline(unet=model, scheduler=noise_scheduler)
         pipeline.to(device)
         samples = pipeline(num_inference_steps=100, batch_size=5).images
@@ -151,5 +172,17 @@ for epoch in range(NUM_EPOCHS):
 
 plot_training_metrics(epoch_losses, batch_losses, timesteps_used, learning_rates, NUM_EPOCHS, model_dir)
 
+##TODO This is repetitive, we should save in one spot; will move to wand once figured out
 # Save trained model
 model.save_pretrained(model_dir)
+
+wandb_dir = Path(wandb.run.dir)  # Get the W&B run directory
+
+# Copy files to the W&B directory manually since wandb.save isn't working due symlink / window permisions issues
+for file in model_dir.iterdir():
+    shutil.copy(file, wandb_dir / file.name)  # Copy instead of creating a symlink
+
+# Manually log the copied files as an artifact
+artifact = wandb.Artifact("diffusers_model", type="model")
+artifact.add_dir(model_dir)
+wandb.log_artifact(artifact)
