@@ -63,7 +63,7 @@ class cells_dataset(torch.utils.data.Dataset):
         self.target_size: tuple[int, int] = target_size
         self.return_label: bool = return_label
 
-        self.img_fps: list[Path] = list(data_dir.glob("[0-0][0-9]/*.tif"))[::50]
+        self.img_fps: list[Path] = list(data_dir.glob("[0-0][0-9]/*.tif"))
         self.dtypes: dict[str, float] = {'uint8': 255, 'uint16': 65535, 'float32': 1.0, 'float64': 1.0}
 
     def __len__(self):
