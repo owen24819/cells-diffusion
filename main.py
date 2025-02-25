@@ -179,8 +179,7 @@ model.save_pretrained(model_dir)
 wandb_dir = Path(wandb.run.dir)  # Get the W&B run directory
 
 # Copy files to the W&B directory manually since wandb.save isn't working due symlink / window permisions issues
-for file in model_dir.iterdir():
-    shutil.copy(file, wandb_dir / file.name)  # Copy instead of creating a symlink
+shutil.copytree(model_dir, wandb_dir, dirs_exist_ok=True)
 
 # Manually log the copied files as an artifact
 artifact = wandb.Artifact("diffusers_model", type="model")
