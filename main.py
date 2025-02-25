@@ -148,7 +148,7 @@ for epoch in range(NUM_EPOCHS):
     print(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}")
     
     # Generate new images every 10 epochs
-    save_images_every_epoch = max(NUM_EPOCHS // 5, NUM_EPOCHS)
+    save_images_every_epoch = max(NUM_EPOCHS // 5, 1)
     if (epoch + 1) % save_images_every_epoch == 0:  # Check if current epoch is divisible by 10
         pipeline = DDPMPipeline(unet=model, scheduler=noise_scheduler)
         pipeline.to(device)
