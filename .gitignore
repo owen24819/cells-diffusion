@@ -10,6 +10,9 @@ data/*
 models/*
 !models/.gitkeep
 
+# Ignore outputs
+outputs/*
+
 # Ignore wandb
 wandb/
 

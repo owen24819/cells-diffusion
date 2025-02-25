@@ -78,6 +78,19 @@ def save_noisy_images(
                 img = Image.fromarray(img)
                 img.save(noisy_images_dir / (f"noisy_t{t}_img{i+1}.png"))
             print(f"Saved noisy images at timestep {t}")
+
+def get_latest_model_dir(dataset_name):
+    """Find the most recent model directory for the given dataset."""
+    model_base_dir = Path(f"./models/{dataset_name}")
+    if not model_base_dir.exists():
+        raise ValueError(f"No models found for dataset {dataset_name}")
+    
+    # List all model directories and sort by creation time
+    model_dirs = list(model_base_dir.glob("UNet2DModel*"))
+    if not model_dirs:
+        raise ValueError(f"No model directories found in {model_base_dir}")
+    
+    return max(model_dirs, key=lambda x: x.stat().st_mtime)
             
 def plot_training_metrics(
         epoch_losses: List[float], 
