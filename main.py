@@ -6,32 +6,41 @@ import shutil
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
-from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel
+from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel, UNet3DConditionModel
 from tqdm import tqdm
 import wandb
 
 # Local imports
-from data_utils import load_dataset
-from utils import add_noise, lr_lambda, plot_training_metrics, save_noisy_images
+from data_utils import ImageDataset, VideoDataset
+from utils import add_noise, lr_lambda, plot_training_metrics, save_noisy_images, save_video, convert_neg_one_to_one_to_np_8bit
 
 # Training hyperparameters
-BATCH_SIZE = 4  
-NUM_EPOCHS = 100
+BATCH_SIZE = 1
+NUM_EPOCHS = 20
 LEARNING_RATE = 2e-4  
 NUM_TIMESTEPS = 1000
-DATASET = "cells"
-SAVE_NOISE_IMAGES = True
+DATASET = "moma"
+DATA_TYPE = "video"  # video or "image"
+FRAMES_PER_VIDEO = 8  # Only used if DATA_TYPE == "video"
+SAVE_NOISE_IMAGES = False
+TARGET_SIZE = (256, 32)
 TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 data_dir = Path(f"./data/{DATASET}")
-MODEL_NAME = f"UNet2DModel_BATCH_SIZE_{BATCH_SIZE}_LEARNING_RATE_{LEARNING_RATE}_EPOCHS_{NUM_EPOCHS}_NUM_TIMESTEPS_{NUM_TIMESTEPS}_{TIMESTAMP}"
-model_dir = Path(f"./models/{DATASET}/{MODEL_NAME}")
+MODEL_NAME = f"{DATASET}_{DATA_TYPE}_UNet2DModel_BATCH_SIZE_{BATCH_SIZE}_LEARNING_RATE_{LEARNING_RATE}_EPOCHS_{NUM_EPOCHS}_NUM_TIMESTEPS_{NUM_TIMESTEPS}_{TIMESTAMP}"
+model_dir = Path(f"./models/{DATASET}/{DATA_TYPE}/{MODEL_NAME}")
 
 data_dir.mkdir(parents=True, exist_ok=True)
 model_dir.mkdir(parents=True, exist_ok=True)
 
-train_dataset = load_dataset(data_dir)
+if DATA_TYPE == "image":
+    train_dataset = ImageDataset(data_dir, TARGET_SIZE)
+elif DATA_TYPE == "video":   
+    train_dataset = VideoDataset(data_dir, TARGET_SIZE, FRAMES_PER_VIDEO)
+else:
+    raise ValueError(f"Invalid data type: {DATA_TYPE}")
 
 train_loader = DataLoader(
         dataset=train_dataset,
@@ -45,29 +54,32 @@ train_loader = DataLoader(
 noise_scheduler = DDPMScheduler(NUM_TIMESTEPS, beta_schedule="linear")
 
 if SAVE_NOISE_IMAGES:
-    # Create a dataset for noise visualization
-    noise_vis_dataset = load_dataset(data_dir)
-    save_noisy_images(
-        train_dataset = noise_vis_dataset, 
-        noisy_images_dir = data_dir / "noisy_images", 
-        noise_scheduler = noise_scheduler, 
-        num_images_to_save = 3, 
-        timesteps = [1, 10, 100, 500]
-    )
+    save_noisy_images(data_dir, DATA_TYPE, TARGET_SIZE, noise_scheduler, num_images_to_save=3, timesteps=[1, 10, 100, 500])
 
-# Initialize larger model with better architecture
-model = UNet2DModel(
-    sample_size=train_dataset.target_size,  # Image size
-    in_channels=1,   # Grayscale images
-    out_channels=1,
-    layers_per_block=2,
-    block_out_channels=(64, 128, 256),  # Made channels increase consistently
-    down_block_types=("DownBlock2D", "DownBlock2D", "DownBlock2D"),  # Removed attention for now
-    up_block_types=("UpBlock2D", "UpBlock2D", "UpBlock2D"),  # Removed attention for now
-).to(device)
+# Initialize model based on data type
+if DATA_TYPE == "image":
+    model = UNet2DModel(
+        sample_size=train_dataset.target_size,  # Image size
+        in_channels=1,
+        out_channels=1,
+        layers_per_block=2,
+        block_out_channels=(64, 128, 256),
+        down_block_types=("DownBlock2D", "DownBlock2D", "DownBlock2D"),
+        up_block_types=("UpBlock2D", "UpBlock2D", "UpBlock2D"),
+    ).to(device)
+else:  # video
+    model = UNet3DConditionModel(
+        sample_size=train_dataset.target_size,  # (height, width)
+        in_channels=1,  # single channel per frame
+        out_channels=1,
+        layers_per_block=2,
+        block_out_channels=(64, 128, 256),
+        down_block_types=("DownBlock3D", "DownBlock3D", "DownBlock3D"),
+        up_block_types=("UpBlock3D", "UpBlock3D", "UpBlock3D"),
+    ).to(device)
 
 # start a new experiment
-wandb.init(project="cells-diffusion-model", name=MODEL_NAME)
+wandb.init(project=f"{DATASET}-diffusion-model-{DATA_TYPE}", name=MODEL_NAME)
 # capture a dictionary of hyperparameters with config
 wandb.config.update({
     "learning_rate": LEARNING_RATE, 
@@ -107,11 +119,16 @@ for epoch in range(NUM_EPOCHS):
             images = images.to(device)  # Ensure data is on GPU
 
             # Add noise to images
-            timesteps = torch.randint(0, NUM_TIMESTEPS, (images.shape[0],), device=device).long()
+            timesteps = torch.randint(0, NUM_TIMESTEPS, (BATCH_SIZE,), device=device).long()
             noisy_images, noise = add_noise(images, timesteps, noise_scheduler)
 
             # Predict noise
-            noise_pred = model(noisy_images, timesteps).sample
+            if DATA_TYPE == "image":
+                noise_pred = model(noisy_images, timesteps).sample
+            else:  # video
+                # For UNet3DUnconditionalModel, we need to reshape the input
+                encoder_hidden_states = torch.zeros(BATCH_SIZE, FRAMES_PER_VIDEO, 1024).to(device)  # Changed from (BATCH_SIZE, 1, 1024)
+                noise_pred = model(noisy_images, timesteps, encoder_hidden_states=encoder_hidden_states).sample
 
             # Loss
             loss = torch.nn.functional.mse_loss(noise_pred, noise)
@@ -152,20 +169,44 @@ for epoch in range(NUM_EPOCHS):
     if (epoch + 1) % save_images_every_epoch == 0:  # Check if current epoch is divisible by 10
         pipeline = DDPMPipeline(unet=model, scheduler=noise_scheduler)
         pipeline.to(device)
-        samples = pipeline(num_inference_steps=100, batch_size=5).images
-
+        
+        if DATA_TYPE == "image":
+            samples = pipeline(
+                num_inference_steps=100, 
+                batch_size=5
+            ).images
+        else:  # video
+            # For video generation
+            latent = torch.randn((BATCH_SIZE, model.config.in_channels, FRAMES_PER_VIDEO, *TARGET_SIZE)).to(device)
+            encoder_hidden_states = torch.zeros(BATCH_SIZE, FRAMES_PER_VIDEO, 1024).to(device)
+            model.eval()
+            with torch.no_grad():
+                # Create inference scheduler with fewer steps
+                inference_scheduler = DDPMScheduler.from_config(noise_scheduler.config)
+                inference_scheduler.set_timesteps(100)  # Set to 100 steps for inference
+                
+                for t in tqdm(inference_scheduler.timesteps, desc="Generating video"):
+                    latent_input = inference_scheduler.scale_model_input(latent, t)
+                    noise_pred = model(latent_input, t, encoder_hidden_states=encoder_hidden_states).sample
+                    latent = inference_scheduler.step(noise_pred, t, latent).prev_sample
+        
         # Create a subdirectory for the current epoch
         epoch_dir = model_dir / f"epoch_{epoch+1}"
         epoch_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save each sample as a PNG file
-        for i, img in enumerate(samples):
-            # Save PIL Image directly
-            image_path = epoch_dir / f"sample_{i+1}.png"
-            img.save(image_path)
+        # Save each sample
+        if DATA_TYPE == "image":
+            for i, sample in enumerate(samples):
+                image_path = epoch_dir / f"sample_{i+1}.png"
+                sample.save(image_path)
+        else:  # vid
+            for i in range(len(latent)):
+                # Save as animated GIF or video file
+                video_path = epoch_dir / f"sample_{i+1}.gif"
+                video = convert_neg_one_to_one_to_np_8bit(latent[i,0])
+                save_video(video, video_path)
             
-            # Print path for easy viewing in VSCode
-            print(f"Saved sample {i+1} to: {image_path.absolute()}")
+            print(f"Saved sample {i+1} to: {str(epoch_dir.absolute())}")
 
     # Add learning rate to the metrics plot
     learning_rates.append(current_lr)

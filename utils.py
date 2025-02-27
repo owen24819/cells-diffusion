@@ -10,6 +10,8 @@ import numpy as np
 
 from diffusers import DDPMScheduler
 
+from data_utils import ImageDataset, VideoDataset
+
 def add_noise(
         images: torch.Tensor, 
         timesteps: int, 
@@ -42,42 +44,87 @@ def convert_neg_one_to_one_to_np_8bit(tensor: torch.Tensor) -> np.ndarray:
     return (tensor.detach().cpu().numpy() * 255).astype('uint8')
 
 def save_noisy_images(
-        train_dataset: torch.utils.data.Dataset, 
-        noisy_images_dir: Path, 
+        data_dir: Path, 
+        data_type: str,
+        target_size: tuple[int, int],
         noise_scheduler: DDPMScheduler,
         timesteps: List[int],
         num_images_to_save: int, 
         ):
     
+
+    if data_type == "image":
+        train_dataset = ImageDataset(data_dir, target_size)
+    elif data_type == "video":
+        train_dataset = VideoDataset(data_dir, target_size, frames_per_video=16)
+    else:
+        raise ValueError(f"Invalid data type: {data_type}")
+    
     # Create main samples directory if it doesn't exist - save generated images here
+    noisy_images_dir = data_dir / f"noisy_{data_type}s"
     noisy_images_dir.mkdir(exist_ok=True, parents=True)
 
     # Save some noisy images before training starts
     with torch.no_grad():
         # Get random images from the dataset
-        sample_images, _ = next(iter(DataLoader(train_dataset, batch_size=num_images_to_save)))
-        sample_images = sample_images
+        inputs, _ = next(iter(DataLoader(train_dataset, batch_size=num_images_to_save)))
         
         # Save original images first
+        images = convert_neg_one_to_one_to_np_8bit(inputs)
         for i in range(num_images_to_save):
-            img = convert_neg_one_to_one_to_np_8bit(sample_images[i])
-            img = Image.fromarray(img)
-            img.save(noisy_images_dir / ( f"original_img{i+1}.png"))
+            
+            if data_type == "image":
+                img = Image.fromarray(images[i])
+                img.save(noisy_images_dir / ( f"original_img{i+1}.png"))
+            elif data_type == "video":
+                # Create a list of PIL images from the video frames
+                frames = [Image.fromarray(frame) for frame in images[i]]
+                # Save as animated GIF
+                frames[0].save(
+                    noisy_images_dir / f"original_video{i+1}.gif",
+                    save_all=True,
+                    append_images=frames[1:],
+                    duration=100, # 100ms per frame
+                    loop=0
+                )
         
-        print("Saved original images")
+        print(f"Saved original {data_type}s")
         
         # Create noise at different timesteps - need to pick timesteps below NUM_TIMESTEPS
         for t in timesteps:
-            timesteps = torch.ones(num_images_to_save, device=sample_images.device).long() * t
-            noisy_images, _ = add_noise(sample_images, timesteps, noise_scheduler)
+            timesteps = torch.ones(num_images_to_save, device=inputs.device).long() * t
+            noisy_images, _ = add_noise(inputs, timesteps, noise_scheduler)
             
+            # Convert from [-1,1] back to [0,1] range
+            noisy_images = convert_neg_one_to_one_to_np_8bit(noisy_images)
             # Convert to PIL images and save
             for i in range(num_images_to_save):
-                # Convert from [-1,1] back to [0,1] range
-                img = convert_neg_one_to_one_to_np_8bit(noisy_images[i])
-                img = Image.fromarray(img)
-                img.save(noisy_images_dir / (f"noisy_t{t}_img{i+1}.png"))
+                if data_type == "image":
+                    img = Image.fromarray(noisy_images[i])
+                    img.save(noisy_images_dir / (f"noisy_t{t}_img{i+1}.png"))
+                elif data_type == "video":
+                    # Create a list of PIL images from the video frames
+                    frames = [Image.fromarray(frame) for frame in noisy_images[i]]
+                    # Save as animated GIF
+                    frames[0].save(
+                        noisy_images_dir / f"noisy_t{t}_video{i+1}.gif",
+                        save_all=True,
+                        append_images=frames[1:],
+                        duration=100, # 100ms per frame
+                        loop=0
+                    )
             print(f"Saved noisy images at timestep {t}")
+
+def save_video(video: np.ndarray, path: Path):
+    '''
+    Save a video to a file
+
+    Args:
+        video (np.ndarray): uint8 array of shape (T, H, W, 3)
+        path (Path): the path to save the video to
+    '''
+    frames = [Image.fromarray(frame) for frame in video]
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=100, loop=0)
 
 def get_latest_model_dir(dataset_name):
     """Find the most recent model directory for the given dataset."""
