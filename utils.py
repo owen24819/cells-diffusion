@@ -124,7 +124,7 @@ def save_video(video: np.ndarray, path: Path):
         path (Path): the path to save the video to
     '''
     frames = [Image.fromarray(frame) for frame in video]
-    frames[0].save(path, save_all=True, append_images=frames[1:], duration=100, loop=0)
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=60, loop=0)
 
 def get_latest_model_dir(dataset_name):
     """Find the most recent model directory for the given dataset."""
@@ -152,7 +152,7 @@ def plot_training_metrics(
 
     # Plot 1: Epoch Losses
     plt.subplot(1, 4, 1)
-    plt.semilogy(range(1, NUM_EPOCHS + 1), epoch_losses, marker='o')
+    plt.semilogy(range(1, NUM_EPOCHS + 1), epoch_losses)
     plt.title('Average Loss per Epoch (Log Scale)')
     plt.xlabel('Epoch')
     plt.ylabel('Loss (log)')
