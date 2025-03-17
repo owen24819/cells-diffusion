@@ -62,6 +62,9 @@ class ImageDataset(torch.utils.data.Dataset):
             image = Image.fromarray(image)
             image = self.transform(image)
 
+        # Shape is [C, H, W] where C = 3 to be compatible with the vae
+        image = image.repeat(3, 1, 1)
+
         if not self.return_label:
             return image, torch.tensor([])  # Return empty tensor instead of None
 
@@ -97,22 +100,18 @@ class VideoDataset(torch.utils.data.Dataset):
 
         video_files_batch = video_files[index:index+self.frames_per_video]
 
-        images = torch.zeros((1, self.frames_per_video, self.target_size[0], self.target_size[1]))
+        images = torch.zeros((self.frames_per_video, 3, self.target_size[0], self.target_size[1]))
         labels = torch.zeros((self.frames_per_video, self.target_size[0], self.target_size[1])) if self.return_label else torch.tensor([])
 
         for i, video_file in enumerate(video_files_batch):
-            image = Image.open(video_file).convert('L')
+            # Load as grayscale
+            image = Image.open(video_file).convert('RGB')
             image = image.resize((self.target_size[1], self.target_size[0]))
-            image = np.array(image)
-
-            if image.max() > 1:
-                image = image / self.dtypes[str(image.dtype)]
 
             if self.transform:
-                image = Image.fromarray(image)
                 image = self.transform(image)
 
-            images[0,i] = image
+            images[i] = image
 
             if self.return_label:
                 label_fp = video_file.parents[1].with_name(video_file.parents[1].name + "_GT") / "SEG" / (f"man_seg{video_file.name[1:]}")
