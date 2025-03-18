@@ -12,12 +12,17 @@ from data_utils import create_dataset
 from utils import add_noise, plot_training_metrics, save_noisy_images, save_sample
 from config import get_config
 from model import create_models, get_latent_from_images, get_predicted_noise, generate_samples_from_noise, get_lr_scheduler
+from argparse_utils import parse_args
 
-# Training hyperparameters
-DATASET = "moma"
-DATA_TYPE = "video"  # "video" or "image"
+# Get command line arguments
+args = parse_args()
+DATASET = args.dataset
+DATA_TYPE = args.data_type
 
+# Get base config and update with command line arguments
 config = get_config(DATA_TYPE, DATASET)
+# Override config values with any non-None command line arguments
+config.update({k: v for k, v in vars(args).items() if v is not None})
 
 model_dir = Path(f"./models/{DATASET}/{DATA_TYPE}/{config['model_name']}")
 data_dir = Path(f"./data/{DATASET}")
