@@ -115,6 +115,15 @@ def save_noisy_images(
                     )
             print(f"Saved noisy images at timestep {t}")
 
+def save_sample(sample: torch.Tensor, save_path: Path, config: dict):
+
+    if config['data_type'] == "image":
+        sample.save(save_path)
+    elif config['data_type'] == "video":
+        save_video(sample, save_path)
+    else:
+        raise ValueError(f"Invalid data type: {config['data_type']}")
+
 def save_video(video: np.ndarray, path: Path):
     '''
     Save a video to a file

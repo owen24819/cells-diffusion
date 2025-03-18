@@ -10,6 +10,9 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
 
+# Local imports
+from config import get_config
+
 def normalize_to_neg_one_to_one(x: torch.Tensor) -> torch.Tensor:
     """Normalize tensor from [0, 1] to [-1, 1]
     
@@ -35,10 +38,10 @@ class DataTransforms:
         ])
 
 class ImageDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir: Path, target_size: tuple[int, int], return_label: bool = False):
+    def __init__(self, data_dir: Path, config: dict, return_label: bool = False):
         self.data_dir = data_dir
         self.dtypes = {'uint8': 255, 'uint16': 65535, 'float32': 1.0, 'float64': 1.0}
-        self.target_size = target_size
+        self.target_size = config['target_size']
         self.return_label = return_label
 
         self.img_fps: list[Path] = list(data_dir.glob("[0-0][0-9]/*.tif"))
@@ -76,11 +79,11 @@ class ImageDataset(torch.utils.data.Dataset):
         return image[None], label
 
 class VideoDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir: Path, target_size: tuple[int, int], frames_per_video: int, return_label: bool = False):
+    def __init__(self, data_dir: Path, config: dict, return_label: bool = False):
         self.data_dir = data_dir
         self.dtypes = {'uint8': 255, 'uint16': 65535, 'float32': 1.0, 'float64': 1.0}
-        self.frames_per_video = frames_per_video
-        self.target_size = target_size
+        self.frames_per_video = config['frames_per_video']
+        self.target_size = config['target_size']
         self.return_label = return_label
  
         self.transform = DataTransforms.get_transforms()
@@ -122,23 +125,33 @@ class VideoDataset(torch.utils.data.Dataset):
 
         return images, labels
 
+def create_dataset(data_dir, config):
+    if config['data_type'] == "image":
+        train_dataset = ImageDataset(data_dir, config)
+    elif config['data_type'] == "video":   
+        train_dataset = VideoDataset(data_dir, config)
+    else:
+        raise ValueError(f"Invalid data type: {config['data_type']}")
+    
+    return train_dataset
+
 if __name__ == "__main__":
     # Example usage
     DATA_TYPE = "video" # 'image' or 'video'
     DATASET = 'moma' 
-    TARGET_SIZE = (256, 32)
-    FRAMES_PER_VIDEO = 16
+    config = get_config(DATA_TYPE, DATASET)
+
     DATA_DIR = Path(f"./data/{DATASET}")
     if DATA_TYPE == "image":
-        dataset = ImageDataset(DATA_DIR, TARGET_SIZE)
+        dataset = ImageDataset(DATA_DIR, config)
     elif DATA_TYPE == "video":
-        dataset = VideoDataset(DATA_DIR, TARGET_SIZE, FRAMES_PER_VIDEO)
+        dataset = VideoDataset(DATA_DIR, config)
     else:
         raise ValueError(f"Invalid data type: {DATA_TYPE}")
 
     train_loader = DataLoader(
             dataset=dataset,
-            batch_size=4,
+            batch_size=config['batch_size'],
             shuffle=True,
             num_workers=0,
             pin_memory=True  # Optimizes data transfer to GPU
