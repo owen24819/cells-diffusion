@@ -47,7 +47,7 @@ class ImageDataset(torch.utils.data.Dataset):
         self.target_size = config['target_size']
         self.return_label = return_label
 
-        self.img_fps: list[Path] = list(data_dir.glob("[0-0][0-9]/*.tif"))
+        self.img_fps: list[Path] = list(data_dir.glob("[0-9][0-9]/*.tif"))
         self.transform = DataTransforms.get_transforms()
 
     def __len__(self):
