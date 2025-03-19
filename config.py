@@ -39,8 +39,6 @@ def get_config(data_type, dataset):
     TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     config['model_name'] = f"{dataset}_{data_type}_UNet2DModel_BATCH_SIZE_{config['batch_size']}_LEARNING_RATE_{config['learning_rate']}_EPOCHS_{config['num_epochs']}_NUM_TIMESTEPS_{config['num_timesteps']}_{TIMESTAMP}"
 
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    config['device'] = device
+    config['device'] = "cuda" if torch.cuda.is_available() else "cpu"
 
     return config
