@@ -53,10 +53,10 @@ model, vae = create_models(config)
 
 # start a new experiment
 wandb.init(project=f"{DATASET}-diffusion-model-{DATA_TYPE}", name=config['model_name'])
-# capture all config parameters
-wandb.config.update(config)
 # track gradients
 wandb.watch(model)
+# capture all config parameters
+wandb.config.update(config)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=config['learning_rate'])
 lr_scheduler = get_lr_scheduler(train_loader, optimizer, config)
@@ -152,16 +152,5 @@ for epoch in range(config['num_epochs']):
 
 plot_training_metrics(epoch_losses, batch_losses, timesteps_used, learning_rates, config['num_epochs'], model_dir)
 
-##TODO This is repetitive, we should save in one spot; will move to wand once figured out
-# Save trained model
-model.save_pretrained(model_dir)
-
-wandb_dir = Path(wandb.run.dir)  # Get the W&B run directory
-
-# Copy files to the W&B directory manually since wandb.save isn't working due symlink / window permisions issues
-shutil.copytree(model_dir, wandb_dir, dirs_exist_ok=True)
-
-# Manually log the copied files as an artifact
-artifact = wandb.Artifact("diffusers_model", type="model")
-artifact.add_dir(model_dir)
-wandb.log_artifact(artifact)
+# Save files to W&B using wandb.save
+wandb.save(str(model_dir / "*"))  # Save all files in model_dir
