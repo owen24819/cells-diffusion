@@ -93,7 +93,9 @@ def get_predicted_noise(model, latents, timesteps, config):
     
     return predicted_noise
 
-def generate_samples_from_noise(model, vae, noise_scheduler, config):
+def generate_samples_from_noise(model, vae, noise_scheduler, config, batch_size=None, num_inference_steps=100):
+
+    batch_size = config['batch_size'] if batch_size is None else batch_size
 
     model.eval()
 
@@ -102,7 +104,7 @@ def generate_samples_from_noise(model, vae, noise_scheduler, config):
         pipeline.to(config['device'])
         pred_latents = pipeline(
             num_inference_steps=100, 
-            batch_size=config['batch_size'],
+            batch_size=batch_size,
             output_type="tensor",
         ).images
 
@@ -124,16 +126,16 @@ def generate_samples_from_noise(model, vae, noise_scheduler, config):
     elif config['data_type'] == "video":
 
         latent = torch.randn(
-                              (config['batch_size'],
+                              (batch_size,
                               config['latent_channels'], config['frames_per_video'], 
                               config['target_size'][0] // config['vae_scale_factor'], 
                               config['target_size'][1] // config['vae_scale_factor'])
                               ).to(config['device'])
         
-        encoder_hidden_states = torch.zeros(config['batch_size'], config['frames_per_video'], 1024).to(config['device'])
+        encoder_hidden_states = torch.zeros(batch_size, config['frames_per_video'], 1024).to(config['device'])
         # Create inference scheduler with fewer steps
         inference_scheduler = DDPMScheduler.from_config(noise_scheduler.config)
-        inference_scheduler.set_timesteps(100)  # Set to 100 steps for inference
+        inference_scheduler.set_timesteps(num_inference_steps)  # Set to 100 steps for inference
         
         for t in tqdm(inference_scheduler.timesteps, desc="Generating video"):
             latent_input = inference_scheduler.scale_model_input(latent, t)

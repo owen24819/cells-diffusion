@@ -131,7 +131,7 @@ for epoch in range(config['num_epochs']):
     if (epoch + 1) % save_images_every_epoch == 0:  # Check if current epoch is divisible by 10
         
         with torch.no_grad():
-            samples = generate_samples_from_noise(model, vae, noise_scheduler, config)
+            samples = generate_samples_from_noise(model, vae, noise_scheduler, config, batch_size = 5)
 
         # Create a subdirectory for the current epoch
         epoch_dir = model_dir / f"epoch_{epoch+1}"
