@@ -15,14 +15,14 @@ IMAGE_CONFIG = {
 
 VIDEO_CONFIG = {
     "data_type": "video",
-    "batch_size": 4,
+    "batch_size": 16,
     "num_epochs": 10,
     "learning_rate": 2e-4,
     "num_timesteps": 1000,
     "target_size": (256, 32),
     "latent_channels": 4,
     "save_noise_images": False,
-    "frames_per_video": 12,
+    "frames_per_video": 16,
 }
 
 
