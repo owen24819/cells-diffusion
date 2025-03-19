@@ -66,6 +66,7 @@ epoch_losses = []
 batch_losses = []
 timesteps_used = []
 learning_rates = []
+min_loss = float('inf')
 
 # Training loop
 for epoch in range(config['num_epochs']):
@@ -118,6 +119,9 @@ for epoch in range(config['num_epochs']):
             # Log metrics to wandb
             wandb.log({"loss": loss.item()})
 
+        # Save trained model if it has the lowest loss so far
+        if epoch_loss < min_loss:
+            min_loss = epoch_loss
             # Save trained model
             model.save_pretrained(model_dir)
     
