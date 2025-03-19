@@ -9,6 +9,9 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
+import requests
+import zipfile
+from tqdm import tqdm
 
 # Local imports
 from config import get_config
@@ -161,3 +164,53 @@ if __name__ == "__main__":
     for images, labels in train_loader:
         print(f"Loaded batch of size {images.shape} for {DATA_TYPE}")
         break
+
+def download_data(data_dir: Path, data_type: str) -> None:
+    """Download and extract dataset if not already present.
+    
+    Args:
+        data_dir (Path): Directory where data should be stored
+        data_type (str): Type of data to download ('image' or 'video')
+    """
+
+    if data_dir.name == "moma":
+        # Create data directory if it doesn't exist
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        # Check if data already exists
+        if any(data_dir.iterdir()):
+            print(f"Data already exists in {data_dir}")
+            return data_dir / "CTC"
+
+        # Download URL
+        url = "https://zenodo.org/records/11237127/files/CTC.zip?download=1"
+        zip_path = data_dir / "CTC.zip"
+
+        print(f"Downloading data to {data_dir}...")
+        response = requests.get(url, stream=True)
+        response.raise_for_status()  # Raise an error for bad status codes
+
+        # Download with progress indication
+        total_size = int(response.headers.get('content-length', 0))
+        block_size = 8192
+        
+        progress_bar = tqdm(total=total_size, unit='iB', unit_scale=True)
+        
+        with open(zip_path, 'wb') as f:
+            for data in response.iter_content(block_size):
+                progress_bar.update(len(data))
+                f.write(data)
+        progress_bar.close()
+                
+        print("Extracting files...")
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(data_dir)
+        
+        # Clean up zip file
+        zip_path.unlink()
+        print("Download and extraction complete!")
+
+        return data_dir / "CTC"
+    
+    else:
+        raise ValueError(f"Invalid dataset: {data_dir.name}")

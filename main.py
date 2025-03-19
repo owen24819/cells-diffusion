@@ -8,7 +8,7 @@ from diffusers import DDPMScheduler
 from tqdm import tqdm
 import wandb
 # Local imports
-from data_utils import create_dataset
+from data_utils import create_dataset, download_data
 from utils import add_noise, plot_training_metrics, save_noisy_images, save_sample
 from config import get_config
 from model import create_models, get_latent_from_images, get_predicted_noise, generate_samples_from_noise, get_lr_scheduler
@@ -16,8 +16,8 @@ from argparse_utils import parse_args
 
 # Get command line arguments
 args = parse_args()
-DATASET = args.dataset
-DATA_TYPE = args.data_type
+DATASET = args.dataset # Currently only moma dataset
+DATA_TYPE = args.data_type # Currently supports images or videos
 
 # Get base config and update with command line arguments
 config = get_config(DATA_TYPE, DATASET)
@@ -25,12 +25,12 @@ config = get_config(DATA_TYPE, DATASET)
 config.update({k: v for k, v in vars(args).items() if v is not None})
 
 model_dir = Path(f"./models/{DATASET}/{DATA_TYPE}/{config['model_name']}")
-data_dir = Path(f"./data/{DATASET}")
-
-data_dir.mkdir(parents=True, exist_ok=True)
 model_dir.mkdir(parents=True, exist_ok=True)
 
-train_dataset = create_dataset(data_dir, config)
+data_dir = Path(f"./data/{DATASET}")
+data_dir = download_data(data_dir, DATA_TYPE)
+
+train_dataset = create_dataset(data_dir / "train", config)
 
 train_loader = DataLoader(
         dataset=train_dataset,
@@ -46,7 +46,7 @@ noise_scheduler = DDPMScheduler(config['num_timesteps'], beta_schedule="linear")
 
 # Save noisy images to check quality of noise scheduler
 if config['save_noise_images']:
-    save_noisy_images(data_dir, DATA_TYPE, config['target_size'], noise_scheduler, num_images_to_save=3, timesteps=[1, 10, 100, 500])
+    save_noisy_images(data_dir / "train", DATA_TYPE, config['target_size'], noise_scheduler, num_images_to_save=3, timesteps=[1, 10, 100, 500])
 
 # Initialize model
 model, vae = create_models(config)
