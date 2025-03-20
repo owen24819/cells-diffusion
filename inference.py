@@ -12,6 +12,8 @@ from safetensors import safe_open
 # Local imports
 from utils import save_sample
 from model import generate_samples_from_noise, create_models
+from argparse_utils import parse_args
+from config import get_config
 
 def generate_images(num_images, output_dir, config, model_download_dir, num_inference_steps=100, device='cuda'):
     """Generate images using the trained model."""
@@ -69,9 +71,11 @@ def generate_images(num_images, output_dir, config, model_download_dir, num_infe
 
 if __name__ == "__main__":
 
-    DATA_TYPE = "video"
-    DATASET = "moma"
-    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    # Get command line arguments
+    args = parse_args()
+    DATASET = args.dataset # Currently only moma dataset
+    DATA_TYPE = args.data_type # Currently supports images or videos
+    DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu' 
 
     NUM_IMAGES = 20    # Number of images to generate
     INFERENCE_STEPS = 100  # Number of denoising steps
