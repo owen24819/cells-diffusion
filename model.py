@@ -120,8 +120,6 @@ def generate_samples_from_noise(model, vae, noise_scheduler, config, batch_size=
         samples = samples.clip(-1, 1)
         # Convert from [B, C, H, W] to [B, H, W, C]
         samples = samples.permute(0, 2, 3, 1)
-        samples = convert_neg_one_to_one_to_np_8bit(samples)
-        samples = [PIL.Image.fromarray(image) for image in samples]
 
     elif config['data_type'] == "video":
 
@@ -152,11 +150,11 @@ def generate_samples_from_noise(model, vae, noise_scheduler, config, batch_size=
         _, c_out, h_out, w_out = samples.shape
         samples = samples.reshape(b, f, c_out, h_out, w_out).permute(0, 1, 3, 4, 2)
 
-        # Convert to numpy and clip to 8-bit
-        samples = convert_neg_one_to_one_to_np_8bit(samples)
-
     else:
         raise ValueError(f"Invalid data type: {config['data_type']}")
+    
+    # Convert to numpy 8-bit
+    samples = convert_neg_one_to_one_to_np_8bit(samples)
 
     return samples
 

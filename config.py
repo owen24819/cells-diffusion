@@ -10,7 +10,6 @@ IMAGE_CONFIG = {
     "num_timesteps": 1000,
     "target_size": (256, 32),
     "latent_channels": 4,
-    "save_noise_images": False,
 }
 
 VIDEO_CONFIG = {
@@ -21,7 +20,6 @@ VIDEO_CONFIG = {
     "num_timesteps": 1000,
     "target_size": (256, 32),
     "latent_channels": 4,
-    "save_noise_images": False,
     "frames_per_video": 16,
 }
 

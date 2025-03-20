@@ -44,10 +44,6 @@ train_loader = DataLoader(
 # Initialize noise scheduler
 noise_scheduler = DDPMScheduler(config['num_timesteps'], beta_schedule="linear")
 
-# Save noisy images to check quality of noise scheduler
-if config['save_noise_images']:
-    save_noisy_images(data_dir / "train", DATA_TYPE, config['target_size'], noise_scheduler, num_images_to_save=3, timesteps=[1, 10, 100, 500])
-
 # Initialize model
 model, vae = create_models(config)
 
