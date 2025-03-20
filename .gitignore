@@ -9,6 +9,7 @@ data/*
 # Ignore models
 models/*
 !models/.gitkeep
+downloaded_models/
 
 # Ignore outputs
 outputs/*

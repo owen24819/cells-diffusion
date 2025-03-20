@@ -4,47 +4,44 @@ import datetime
 
 # Third-party imports
 import torch
-from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel
+from diffusers import DDPMScheduler, UNet2DModel, UNet3DConditionModel
 from tqdm import tqdm
 import wandb
 from safetensors import safe_open
 
 # Local imports
-from utils import get_latest_model_dir
+from utils import save_sample
+from model import generate_samples_from_noise, create_models
 
-def generate_images(num_images, model_dir, output_dir, num_inference_steps=100, num_timesteps=1000):
+def generate_images(num_images, output_dir, config, model_download_dir, num_inference_steps=100, device='cuda'):
     """Generate images using the trained model."""
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # Initialize noise scheduler using config if available
-    noise_scheduler = DDPMScheduler(num_timesteps, beta_schedule="linear")
+
+    # Initialize model
+    model, vae = create_models(config)
     
     # Load the pipeline with the model files
-    config_path = model_dir / "config.json"
-    model_path = model_dir / "diffusion_pytorch_model.safetensors"
-    
-    if not config_path.exists() or not model_path.exists():
-        raise ValueError(f"Missing required model files in {model_dir}")
+    config_path = model_download_dir / "config.json"
+    model_path = model_download_dir / "diffusion_pytorch_model.safetensors"
+
+    # Initialize noise scheduler
+    noise_scheduler = DDPMScheduler(config['num_timesteps'], beta_schedule="linear")
         
     # Create a new UNet model with the config
-    unet = UNet2DModel.from_config(UNet2DModel.load_config(str(config_path)))
-    
-    # Create the pipeline
-    pipeline = DDPMPipeline(
-        unet=unet,
-        scheduler=noise_scheduler
-    )
+    if config['data_type'] == "image":
+        model = UNet2DModel.from_config(UNet2DModel.load_config(config_path))
+    elif config['data_type'] == "video":
+        model = UNet3DConditionModel.from_config(UNet3DConditionModel.load_config(config_path))
+
+    model.to(device)
     
     # Load the safetensors weights
-    with safe_open(str(model_path), framework="pt", device="cpu") as f:
+    with safe_open(str(model_path), framework="pt", device=device) as f:
         state_dict = {k: f.get_tensor(k) for k in f.keys()}
-        pipeline.unet.load_state_dict(state_dict)
-    
-    pipeline.to(device)
+        model.load_state_dict(state_dict)
     
     # Create timestamp for this generation run
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    generation_dir = output_dir / f"generation_{timestamp}"
+    generation_dir = output_dir / config['dataset'] / config['data_type'] / config['model_name'] / f"generation_{timestamp}"
     generation_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"Generating {num_images} images...")
@@ -54,17 +51,16 @@ def generate_images(num_images, model_dir, output_dir, num_inference_steps=100, 
     num_batches = (num_images + batch_size - 1) // batch_size
     
     generated_count = 0
-    for batch in tqdm(range(num_batches)):
+    for _ in tqdm(range(num_batches)):
         current_batch_size = min(batch_size, num_images - generated_count)
-        samples = pipeline(
-            num_inference_steps=num_inference_steps,
-            batch_size=current_batch_size
-        ).images
-        
-        # Save the generated images
-        for idx, img in enumerate(samples):
-            image_path = generation_dir / f"generated_{num_inference_steps}_inference_steps_{generated_count + idx + 1}.png"
-            img.save(image_path)
+        config['batch_size'] = current_batch_size
+        with torch.no_grad():
+            samples = generate_samples_from_noise(model, vae, noise_scheduler, config, num_inference_steps=num_inference_steps)
+
+        # Save each sample
+        for i, sample in enumerate(samples):
+            save_path = generation_dir / f"{num_inference_steps}_inference_steps_{generated_count + i + 1}.png"
+            save_sample(sample, save_path, config)
         
         generated_count += len(samples)
     
@@ -72,40 +68,49 @@ def generate_images(num_images, model_dir, output_dir, num_inference_steps=100, 
     return generation_dir
 
 if __name__ == "__main__":
-    # Load the latest run from W&B
-    api = wandb.Api()
-    runs = api.runs("cells-diffusion-model")  # Replace with your project name
-    latest_run = runs[0]  # Assumes runs are sorted by date
-    
-    # Get configuration from the latest run
-    config = latest_run.config
-    DATASET = config['dataset']
-    NUM_TIMESTEPS = config['timesteps']
+
+    DATA_TYPE = "video"
+    DATASET = "moma"
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
     NUM_IMAGES = 20    # Number of images to generate
     INFERENCE_STEPS = 100  # Number of denoising steps
-    
-    print(f"Loaded configuration from W&B run: {latest_run.name}")
-    print(f"Dataset: {DATASET}")
-    print(f"Original timesteps: {config.get('timesteps')}")
-    print(f"Original batch size: {config.get('batch_size')}")
+
+    if DATA_TYPE == "image":
+        run_name = "moma-diffusion-model-image/1wpfp1pw"
+    elif DATA_TYPE == "video":
+        run_name = "moma-diffusion-model-video/jjbp0dqy"
+
+    # Initialize wandb and specify the run to restore from
+    api = wandb.Api()
+    run = api.run("owenoconnor248-boston-university/" + run_name)
+
+    model_name = run.config['model_name']
+    wandb_path = Path(f"models/{DATASET}/{DATA_TYPE}/{model_name}")
+
+    # Create download directory
+    download_dir = Path("./downloaded_models")
+    download_dir.mkdir(exist_ok=True)
+
+    # Download the files
+    for filename in ["config.json", "diffusion_pytorch_model.safetensors"]:
+        file_path = f"{wandb_path}/{filename}"
+        if not (download_dir / file_path).exists():
+            run.file(file_path).download(root=str(download_dir))
+
+    model_download_dir = download_dir / wandb_path
+    config = run.config
     
     # Setup directories
     outputs_dir = Path("./outputs")
     outputs_dir.mkdir(exist_ok=True)
-    
-    # Get the latest model
-    try:
-        model_dir = get_latest_model_dir(DATASET)
-        print(f"Using model from: {model_dir}")
-        
-        # Generate images
-        output_dir = generate_images(
-            num_images=NUM_IMAGES,
-            model_dir=model_dir,
-            output_dir=outputs_dir,
-            num_inference_steps=INFERENCE_STEPS,
-            num_timesteps=NUM_TIMESTEPS,
-        )
-        
-    except ValueError as e:
-        print(f"Error: {e}") 
+            
+    # Generate images
+    output_dir = generate_images(
+        num_images=NUM_IMAGES,
+        output_dir=outputs_dir,
+        config=config,
+        model_download_dir=model_download_dir,
+        num_inference_steps=INFERENCE_STEPS,
+        device=DEVICE,
+    )
